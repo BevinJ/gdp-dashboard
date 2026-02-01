@@ -1,16 +1,22 @@
 import streamlit as st
 from collections import defaultdict
-import random
+import hashlib
+import time
 
 st.set_page_config(page_title="Agentic Support AI", layout="wide")
 
 st.title("🧠 Agentic AI – Self-Healing Support System")
 st.caption("Problem 1: Hosted → Headless Migration")
 
-# -------------------------------
-# Simulated Support Tickets
-# -------------------------------
+# --------------------------------
+# AGENT MEMORY (PERSISTENT)
+# --------------------------------
+if "incident_memory" not in st.session_state:
+    st.session_state.incident_memory = {}
 
+# --------------------------------
+# SIMULATED SUPPORT TICKETS
+# --------------------------------
 tickets = [
     {"merchant": "M1", "error": "CHECKOUT_500", "migrated": True, "stage": "checkout"},
     {"merchant": "M2", "error": "CHECKOUT_500", "migrated": True, "stage": "checkout"},
@@ -22,92 +28,90 @@ tickets = [
 st.subheader("📥 Incoming Signals (Support Tickets)")
 st.table(tickets)
 
-# -------------------------------
-# Observation Layer
-# -------------------------------
-
+# --------------------------------
+# OBSERVATION LAYER
+# --------------------------------
 error_groups = defaultdict(list)
 for t in tickets:
     error_groups[t["error"]].append(t)
 
-# -------------------------------
-# Reasoning Layer
-# -------------------------------
-
-hypotheses = []
+# --------------------------------
+# REASONING LAYER (MULTI-HYPOTHESIS)
+# --------------------------------
+st.subheader("🧠 Agent Reasoning")
 
 for error, group in error_groups.items():
     merchants = set(t["merchant"] for t in group)
     migrated = [t for t in group if t["migrated"]]
     stages = set(t["stage"] for t in group)
 
-    # 1. Merchant Misconfiguration
+    # Create incident signature
+    signature = hashlib.md5(
+        f"{error}-{sorted(merchants)}-{sorted(stages)}".encode()
+    ).hexdigest()
+
+    seen_before = signature in st.session_state.incident_memory
+
+    hypotheses = []
+
+    # Merchant Misconfiguration
     if len(merchants) == 1:
-        hypotheses.append({
-            "type": "Merchant Misconfiguration",
-            "confidence": 0.85,
-            "reason": "Issue isolated to a single merchant",
-            "action": "Guide merchant to fix configuration"
-        })
+        hypotheses.append(("Merchant Misconfiguration", 0.85, "Guide merchant"))
 
-    # 2. Platform Regression
+    # Platform Regression
     if len(merchants) >= 3:
-        hypotheses.append({
-            "type": "Platform Regression",
-            "confidence": 0.8,
-            "reason": "Same error across multiple merchants",
-            "action": "Escalate to engineering immediately"
-        })
+        hypotheses.append(("Platform Regression", 0.8, "Escalate to engineering"))
 
-    # 3. Documentation Gap
+    # Documentation Gap
     if len(migrated) >= 2:
-        hypotheses.append({
-            "type": "Documentation Gap",
-            "confidence": 0.75,
-            "reason": "Repeated errors after migration",
-            "action": "Update docs + notify merchants"
-        })
+        hypotheses.append(("Documentation Gap", 0.75, "Update docs & notify"))
 
-    # 4. Migration Step Mismatch
+    # Migration Step Mismatch
     if len(stages) == 1:
-        hypotheses.append({
-            "type": "Migration Step Mismatch",
-            "confidence": 0.7,
-            "reason": f"Failures concentrated at stage: {list(stages)[0]}",
-            "action": "Pause migration at this step"
-        })
+        hypotheses.append(("Migration Step Mismatch", 0.7, f"Pause {list(stages)[0]} step"))
 
-# -------------------------------
-# Decision Layer
-# -------------------------------
+    # Increase confidence if seen before
+    final_hypotheses = []
+    for h in hypotheses:
+        confidence = h[1]
+        if seen_before:
+            confidence += 0.1
+        final_hypotheses.append((h[0], round(min(confidence, 0.95), 2), h[2]))
 
-st.subheader("🧠 Agent Reasoning (Multiple Hypotheses)")
+    # Save memory
+    st.session_state.incident_memory[signature] = {
+        "error": error,
+        "times_seen": st.session_state.incident_memory.get(signature, {}).get("times_seen", 0) + 1,
+        "last_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "hypotheses": final_hypotheses,
+    }
 
-for h in hypotheses:
-    with st.expander(f"🔎 {h['type']} (confidence {h['confidence']})"):
-        st.write("**Why:**", h["reason"])
-        st.write("**Proposed Action:**", h["action"])
-        if h["confidence"] > 0.75:
-            st.success("Safe to act autonomously")
+    # --------------------------------
+    # UI OUTPUT
+    # --------------------------------
+    with st.expander(f"🔎 Error Pattern: {error}"):
+        if seen_before:
+            st.warning("⚠️ This issue has occurred before")
+            st.write("**Agent Insight:** Previous mitigation likely applies.")
         else:
-            st.warning("Requires human approval")
+            st.info("🆕 New issue detected")
 
-# -------------------------------
-# Action Layer
-# -------------------------------
+        for h in final_hypotheses:
+            st.write(f"**Hypothesis:** {h[0]}")
+            st.write(f"Confidence: {h[1]}")
+            st.write(f"Proposed Action: {h[2]}")
+            if h[1] >= 0.8:
+                st.success("Safe to act autonomously")
+            else:
+                st.warning("Requires human approval")
+            st.divider()
 
-st.subheader("⚙️ Agent Actions (Simulated)")
+# --------------------------------
+# LEARNING & MEMORY VIEW
+# --------------------------------
+st.subheader("📈 Agent Memory")
 
-for h in hypotheses:
-    st.write(f"➡️ **{h['action']}**")
-
-# -------------------------------
-# Learning Layer
-# -------------------------------
-
-st.subheader("📈 Learning & Memory Update")
-
-st.info(
-    "Agent will track whether these actions reduce repeat tickets "
-    "and adjust confidence for future incidents."
-)
+for v in st.session_state.incident_memory.values():
+    st.write(
+        f"🧠 **{v['error']}** | Seen {v['times_seen']} times | Last seen: {v['last_seen']}"
+    )
