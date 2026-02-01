@@ -1,151 +1,113 @@
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+from collections import defaultdict
+import random
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.set_page_config(page_title="Agentic Support AI", layout="wide")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.title("🧠 Agentic AI – Self-Healing Support System")
+st.caption("Problem 1: Hosted → Headless Migration")
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# -------------------------------
+# Simulated Support Tickets
+# -------------------------------
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
+tickets = [
+    {"merchant": "M1", "error": "CHECKOUT_500", "migrated": True, "stage": "checkout"},
+    {"merchant": "M2", "error": "CHECKOUT_500", "migrated": True, "stage": "checkout"},
+    {"merchant": "M3", "error": "CHECKOUT_500", "migrated": True, "stage": "checkout"},
+    {"merchant": "M4", "error": "API_KEY_INVALID", "migrated": False, "stage": "api"},
+    {"merchant": "M5", "error": "WEBHOOK_MISSING", "migrated": True, "stage": "webhook"},
 ]
 
-st.header('GDP over time', divider='gray')
+st.subheader("📥 Incoming Signals (Support Tickets)")
+st.table(tickets)
 
-''
+# -------------------------------
+# Observation Layer
+# -------------------------------
 
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
+error_groups = defaultdict(list)
+for t in tickets:
+    error_groups[t["error"]].append(t)
 
-''
-''
+# -------------------------------
+# Reasoning Layer
+# -------------------------------
 
+hypotheses = []
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+for error, group in error_groups.items():
+    merchants = set(t["merchant"] for t in group)
+    migrated = [t for t in group if t["migrated"]]
+    stages = set(t["stage"] for t in group)
 
-st.header(f'GDP in {to_year}', divider='gray')
+    # 1. Merchant Misconfiguration
+    if len(merchants) == 1:
+        hypotheses.append({
+            "type": "Merchant Misconfiguration",
+            "confidence": 0.85,
+            "reason": "Issue isolated to a single merchant",
+            "action": "Guide merchant to fix configuration"
+        })
 
-''
+    # 2. Platform Regression
+    if len(merchants) >= 3:
+        hypotheses.append({
+            "type": "Platform Regression",
+            "confidence": 0.8,
+            "reason": "Same error across multiple merchants",
+            "action": "Escalate to engineering immediately"
+        })
 
-cols = st.columns(4)
+    # 3. Documentation Gap
+    if len(migrated) >= 2:
+        hypotheses.append({
+            "type": "Documentation Gap",
+            "confidence": 0.75,
+            "reason": "Repeated errors after migration",
+            "action": "Update docs + notify merchants"
+        })
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+    # 4. Migration Step Mismatch
+    if len(stages) == 1:
+        hypotheses.append({
+            "type": "Migration Step Mismatch",
+            "confidence": 0.7,
+            "reason": f"Failures concentrated at stage: {list(stages)[0]}",
+            "action": "Pause migration at this step"
+        })
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+# -------------------------------
+# Decision Layer
+# -------------------------------
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
+st.subheader("🧠 Agent Reasoning (Multiple Hypotheses)")
+
+for h in hypotheses:
+    with st.expander(f"🔎 {h['type']} (confidence {h['confidence']})"):
+        st.write("**Why:**", h["reason"])
+        st.write("**Proposed Action:**", h["action"])
+        if h["confidence"] > 0.75:
+            st.success("Safe to act autonomously")
         else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+            st.warning("Requires human approval")
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# -------------------------------
+# Action Layer
+# -------------------------------
+
+st.subheader("⚙️ Agent Actions (Simulated)")
+
+for h in hypotheses:
+    st.write(f"➡️ **{h['action']}**")
+
+# -------------------------------
+# Learning Layer
+# -------------------------------
+
+st.subheader("📈 Learning & Memory Update")
+
+st.info(
+    "Agent will track whether these actions reduce repeat tickets "
+    "and adjust confidence for future incidents."
+)
